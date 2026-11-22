@@ -6,7 +6,6 @@
   <h1>Make every bottle count.</h1>
   <p>Welcome back, {{phone}}. Recycle plastic bottles, verify your drop-off and earn points for every successful session.</p>
 </section>
-
 <section class="card">
   <div class="section-head">
     <div><div class="eyebrow">Your impact</div><h2>Recycling overview</h2></div>
@@ -28,7 +27,15 @@
 <section class="card">
   <div class="eyebrow">Machine sensor</div><h2>Live IR Detection</h2>
   <div id="ir-live" class="status-box muted">Checking sensor status...</div>
+  <p id="ir-updated" class="muted">Last update: —</p>
   <p class="muted">Sensor status refreshes automatically.</p>
+</section>
+<section class="card">
+  <h2>IR Detection History</h2>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Date &amp; time</th><th>Sensor event</th></tr></thead>
+    <tbody id="ir-history"><tr><td colspan="2">Loading sensor history...</td></tr></tbody>
+  </table></div>
 </section>
 <section class="card">
   <div class="section-head"><h2>Live session status</h2><span class="pill">Machine updates automatically</span></div>
@@ -59,7 +66,16 @@ async function refreshIR(){
     let el=document.getElementById('ir-live');
     el.textContent=d.detected?'🟢 OBJECT DETECTED':'⚪ NO OBJECT';
     el.className='status-box '+(d.detected?'success':'muted');
+    document.getElementById('ir-updated').textContent='Last update: '+(d.updated_at||'—');
   }catch(e){document.getElementById('ir-live').textContent='Sensor status unavailable';}
+}
+async function refreshIRHistory(){
+  try{
+    let r=await fetch('/api/user/ir-history?limit=30');
+    if(!r.ok){document.getElementById('ir-history').innerHTML='<tr><td colspan="2">History unavailable (HTTP '+r.status+')</td></tr>';return;}
+    let d=await r.json();
+    document.getElementById('ir-history').innerHTML=d.history.map(x=>`<tr><td>${x.created_at}</td><td>${x.detected?'🟢 OBJECT DETECTED':'⚪ NO OBJECT'}</td></tr>`).join('')||'<tr><td colspan="2">No sensor events saved yet.</td></tr>';
+  }catch(e){document.getElementById('ir-history').innerHTML='<tr><td colspan="2">History unavailable</td></tr>';}
 }
 document.getElementById('start').onclick=async()=>{
   let n=Number(document.getElementById('expected').value);
@@ -69,6 +85,7 @@ document.getElementById('start').onclick=async()=>{
   refresh();
 };
 refreshIR();setInterval(refreshIR,800);
+refreshIRHistory();setInterval(refreshIRHistory,3000);
 refresh();setInterval(refresh,1800);
 </script>
 {% endblock %}
