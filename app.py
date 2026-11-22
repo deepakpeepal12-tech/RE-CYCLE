@@ -48,6 +48,17 @@ def init_db():
           updated_at TEXT NOT NULL,
           FOREIGN KEY(user_id) REFERENCES users(id)
         );
+        CREATE TABLE IF NOT EXISTS ir_state(
+          id INTEGER PRIMARY KEY CHECK (id=1),
+          detected INTEGER NOT NULL DEFAULT 0,
+          updated_at TEXT
+        );
+        INSERT OR IGNORE INTO ir_state(id, detected, updated_at) VALUES(1, 0, NULL);
+        CREATE TABLE IF NOT EXISTS ir_events(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          detected INTEGER NOT NULL,
+          created_at TEXT NOT NULL
+        );
         """)
 
 def user_required(fn):
@@ -69,9 +80,7 @@ def admin_required(fn):
 def machine_required():
     return secrets.compare_digest(request.headers.get("X-Machine-Token", ""), MACHINE_TOKEN)
 
-# Latest IR sensor state (live dashboard)
-IR_STATE = {"detected": False, "updated_at": None}
-
+# Latest IR sensor state and history are stored in SQLite (persistent).
 @app.post("/api/machine/ir-status")
 def machine_ir_status():
     if not machine_required():
@@ -80,14 +89,29 @@ def machine_ir_status():
     detected = data.get("detected")
     if not isinstance(detected, bool):
         return jsonify(error="detected must be true or false"), 400
-    IR_STATE["detected"] = detected
-    IR_STATE["updated_at"] = datetime.now().isoformat(timespec="seconds")
-    return jsonify(ok=True, detected=detected, updated_at=IR_STATE["updated_at"])
+    now = datetime.now().isoformat(timespec="seconds")
+    with connect() as con:
+        con.execute("UPDATE ir_state SET detected=?, updated_at=? WHERE id=1", (int(detected), now))
+        con.execute("INSERT INTO ir_events(detected, created_at) VALUES(?,?)", (int(detected), now))
+    return jsonify(ok=True, detected=detected, updated_at=now)
 
 @app.get("/api/user/ir-status")
 @user_required
 def user_ir_status():
-    return jsonify(detected=IR_STATE["detected"], updated_at=IR_STATE["updated_at"])
+    with connect() as con:
+        row = con.execute("SELECT detected, updated_at FROM ir_state WHERE id=1").fetchone()
+    return jsonify(detected=bool(row["detected"]) if row else False, updated_at=row["updated_at"] if row else None)
+
+@app.get("/api/user/ir-history")
+@user_required
+def user_ir_history():
+    try:
+        limit = max(1, min(int(request.args.get("limit", 20)), 100))
+    except (TypeError, ValueError):
+        limit = 20
+    with connect() as con:
+        rows = con.execute("SELECT id, detected, created_at FROM ir_events ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return jsonify(history=[dict(id=r["id"], detected=bool(r["detected"]), created_at=r["created_at"]) for r in rows])
 
 @app.after_request
 def security_headers(resp):
