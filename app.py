@@ -69,6 +69,26 @@ def admin_required(fn):
 def machine_required():
     return secrets.compare_digest(request.headers.get("X-Machine-Token", ""), MACHINE_TOKEN)
 
+# Latest IR sensor state (live dashboard)
+IR_STATE = {"detected": False, "updated_at": None}
+
+@app.post("/api/machine/ir-status")
+def machine_ir_status():
+    if not machine_required():
+        return jsonify(error="Unauthorized"), 401
+    data = request.get_json(silent=True) or {}
+    detected = data.get("detected")
+    if not isinstance(detected, bool):
+        return jsonify(error="detected must be true or false"), 400
+    IR_STATE["detected"] = detected
+    IR_STATE["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    return jsonify(ok=True, detected=detected, updated_at=IR_STATE["updated_at"])
+
+@app.get("/api/user/ir-status")
+@user_required
+def user_ir_status():
+    return jsonify(detected=IR_STATE["detected"], updated_at=IR_STATE["updated_at"])
+
 @app.after_request
 def security_headers(resp):
     resp.headers["X-Content-Type-Options"] = "nosniff"
